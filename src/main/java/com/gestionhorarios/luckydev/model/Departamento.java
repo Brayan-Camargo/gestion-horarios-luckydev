@@ -17,4 +17,5 @@ public class Departamento {
     private String descripcion;
 
     private Integer personalMinimoRequerido;
+    private Integer minutosComidaDefault = 60;
 }
