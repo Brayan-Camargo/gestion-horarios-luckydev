@@ -1,5 +1,6 @@
 package com.gestionhorarios.luckydev.model;
 
+import com.gestionhorarios.luckydev.model.enums.TipoTurno;
 import jakarta.persistence.*;
 import lombok.Data;
 
@@ -19,7 +20,8 @@ public class TurnoProgramado {
     private LocalDateTime fechaHoraEntrada;
     private LocalDateTime fechaHoraSalida;
 
-    private String tipoTurno; // Apertura, Cierre, Intermedio
+    @Enumerated(EnumType.STRING)
+    private TipoTurno tipoTurno;
     private boolean esDescanso; // Para Fin Libre Vie, Sab, Dom
 
     private boolean esPeticionAprobada;

@@ -26,8 +26,7 @@ public class Empleado {
 
     private Integer conteoAperturasMes = 0;
     private Integer conteoCierresMes = 0;
-    private LocalDate ultimoFinDeSemanaCalidad;
-
     private LocalDate fechaUltimoFinDeSemanaLargo;
+
     private Integer peticionesAceptadasMes = 0; // Se deben limitar a un maximo de 2 al mes
 }
