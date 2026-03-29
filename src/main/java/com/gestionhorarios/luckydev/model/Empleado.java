@@ -19,4 +19,6 @@ public class Empleado {
     private Integer horasContratoSemanal;
     private Double saldoHoras;
     private String observaciones;
+    private Integer diasDeuda = 0;
+    private Integer minutosDeuda = 0;
 }

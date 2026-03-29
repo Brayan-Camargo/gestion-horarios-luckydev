@@ -18,4 +18,5 @@ public class Departamento {
 
     private Integer personalMinimoRequerido;
     private Integer minutosComidaDefault = 60;
+    private Integer diasDescansoSemanales = 2;
 }
