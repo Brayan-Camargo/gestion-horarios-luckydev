@@ -26,7 +26,7 @@ public class NovedadService {
         if (novedad.getTipo() == TipoNovedad.FUERZA_MAYOR) {
             emp.setMinutosDeuda(emp.getMinutosDeuda() + novedad.getMinutosAfectados());
         }
-        
+
         if (novedad.getTipo() == TipoNovedad.PERMISO_ESPECIAL) {
             emp.setMinutosDeuda(emp.getMinutosDeuda() - novedad.getMinutosAfectados());
         }
