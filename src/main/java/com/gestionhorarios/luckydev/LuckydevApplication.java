@@ -7,6 +7,7 @@ import com.gestionhorarios.luckydev.model.enums.TipoNovedad;
 import com.gestionhorarios.luckydev.repository.DepartamentoRepository;
 import com.gestionhorarios.luckydev.repository.EmpleadoRepository;
 import com.gestionhorarios.luckydev.repository.NovedadRepository;
+import com.gestionhorarios.luckydev.service.GeneradorHorarioService;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -25,40 +26,36 @@ public class LuckydevApplication {
     public CommandLineRunner setup(
             EmpleadoRepository empRepo,
             DepartamentoRepository depRepo,
-            NovedadRepository novRepo) { // <--- Agregamos el repo de novedades aquí
+            NovedadRepository novRepo,
+            GeneradorHorarioService generadorService) { // <--- Inyectamos el Generador aquí
         return args -> {
-            // 1. Crear Departamento
+            // 1. Crear Departamento y guardarlo en una variable 'dep'
             Departamento dep = new Departamento();
             dep.setNombre("Ventas Nocturnas");
             dep.setMinutosComidaDefault(60);
-            dep.setDiasDescansoSemanales(2);
-            depRepo.save(dep);
+            dep.setPersonalMinimoRequerido(1); // Importante para la cobertura
+            dep = depRepo.save(dep); // Guardamos y recuperamos con su ID real
 
-            // 2. Crear Empleado 1: Brayan (Disponible)
+            // 2. Crear Empleado 1: Brayan
             Empleado brayan = new Empleado();
             brayan.setNombre("Brayan Camargo");
-            brayan.setPuesto("Líder de Piso");
             brayan.setDepartamento(dep);
             empRepo.save(brayan);
 
-            // 3. Crear Empleado 2: Juan (Estará de vacaciones)
+            // 3. Crear Empleado 2: Juan
             Empleado juan = new Empleado();
             juan.setNombre("Juan Perez");
-            juan.setPuesto("Auxiliar");
             juan.setDepartamento(dep);
             empRepo.save(juan);
 
-            // 4. Registrar Vacaciones para Juan
-            // Esta fecha debe coincidir con la que pusimos en el Controller (30 marzo - 5 abril)
-            Novedad vacacion = new Novedad();
-            vacacion.setEmpleado(juan);
-            vacacion.setTipo(TipoNovedad.VACACIONES);
-            vacacion.setFechaInicio(LocalDate.of(2026, 3, 28)); // Inicia antes de la semana
-            vacacion.setFechaFin(LocalDate.of(2026, 4, 2));    // Termina en medio de la semana
-            vacacion.setMinutosAfectados(0); // Para esta prueba no importa el banco de tiempo
-            novRepo.save(vacacion);
+            System.out.println("¡Empleados creados con éxito!");
 
-            System.out.println("¡Escenario de prueba con vacaciones cargado correctamente!");
+            // 4. AHORA SÍ: Llamamos al motor con el ID real del departamento creado
+            // Esto evita el error de "división por cero" porque ya hay 2 empleados
+            System.out.println("Generando barrido de calidad de vida para " + dep.getNombre() + "...");
+            generadorService.generarBarridoMensual(dep.getId(), 4, 2026);
+
+            System.out.println("¡Todo listo! Revisa tu base de datos.");
         };
     }
 }
