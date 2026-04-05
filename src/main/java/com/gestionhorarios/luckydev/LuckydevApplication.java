@@ -1,9 +1,9 @@
 package com.gestionhorarios.luckydev;
 
+import com.gestionhorarios.luckydev.model.ConfiguracionTurno;
 import com.gestionhorarios.luckydev.model.Departamento;
 import com.gestionhorarios.luckydev.model.Empleado;
-import com.gestionhorarios.luckydev.model.Novedad;
-import com.gestionhorarios.luckydev.model.enums.TipoNovedad;
+import com.gestionhorarios.luckydev.repository.ConfiguracionTurnoRepository;
 import com.gestionhorarios.luckydev.repository.DepartamentoRepository;
 import com.gestionhorarios.luckydev.repository.EmpleadoRepository;
 import com.gestionhorarios.luckydev.repository.NovedadRepository;
@@ -13,7 +13,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 
-import java.time.LocalDate;
+import java.time.LocalTime;
 
 @SpringBootApplication
 public class LuckydevApplication {
@@ -27,22 +27,44 @@ public class LuckydevApplication {
             EmpleadoRepository empRepo,
             DepartamentoRepository depRepo,
             NovedadRepository novRepo,
-            GeneradorHorarioService generadorService) { // <--- Inyectamos el Generador aquí
+            ConfiguracionTurnoRepository configTurnoRepo, // <--- PASO A: Inyectamos el nuevo Repo
+            GeneradorHorarioService generadorService) {
         return args -> {
-            // 1. Crear Departamento y guardarlo en una variable 'dep'
+            // 1. Crear Departamento
             Departamento dep = new Departamento();
             dep.setNombre("Ventas Nocturnas");
             dep.setMinutosComidaDefault(60);
-            dep.setPersonalMinimoRequerido(1); // Importante para la cobertura
-            dep = depRepo.save(dep); // Guardamos y recuperamos con su ID real
+            dep.setPersonalMinimoRequerido(1);
+            dep = depRepo.save(dep);
 
-            // 2. Crear Empleado 1: Brayan
+            // 2. PASO B: Configurar los turnos base para este departamento
+            // Esto es lo que el sistema leerá para saber qué horarios asignar
+            if (configTurnoRepo.count() == 0) {
+                ConfiguracionTurno apertura = new ConfiguracionTurno();
+                apertura.setNombrePersonalizado("Apertura");
+                apertura.setHoraEntrada(LocalTime.of(8, 0));
+                apertura.setHoraSalida(LocalTime.of(17, 0));
+                apertura.setOrdenPrioridad(1);
+                apertura.setDepartamento(dep);
+                configTurnoRepo.save(apertura);
+
+                ConfiguracionTurno cierre = new ConfiguracionTurno();
+                cierre.setNombrePersonalizado("Cierre");
+                cierre.setHoraEntrada(LocalTime.of(13, 0));
+                cierre.setHoraSalida(LocalTime.of(22, 0));
+                cierre.setOrdenPrioridad(2);
+                cierre.setDepartamento(dep);
+                configTurnoRepo.save(cierre);
+
+                System.out.println("✅ Configuración de turnos (Apertura/Cierre) creada.");
+            }
+
+            // 3. Crear Empleados
             Empleado brayan = new Empleado();
             brayan.setNombre("Brayan Camargo");
             brayan.setDepartamento(dep);
             empRepo.save(brayan);
 
-            // 3. Crear Empleado 2: Juan
             Empleado juan = new Empleado();
             juan.setNombre("Juan Perez");
             juan.setDepartamento(dep);
@@ -50,12 +72,12 @@ public class LuckydevApplication {
 
             System.out.println("¡Empleados creados con éxito!");
 
-            // 4. AHORA SÍ: Llamamos al motor con el ID real del departamento creado
-            // Esto evita el error de "división por cero" porque ya hay 2 empleados
-            System.out.println("Generando barrido de calidad de vida para " + dep.getNombre() + "...");
-            generadorService.generarBarridoMensual(dep.getId(), 4, 2026);
+            // 4. PASO C: Llamar al generador de MES COMPLETO
+            // Ahora usamos 'generarMesCompleto' que ya incluye tus turnos elásticos
+            System.out.println("Iniciando generación automática del mes...");
+            generadorService.generarMesCompleto(dep.getId(), 4, 2026);
 
-            System.out.println("¡Todo listo! Revisa tu base de datos.");
+            System.out.println("¡Todo listo! Revisa tu base de datos para ver el mes de Abril.");
         };
     }
 }

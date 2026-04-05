@@ -1,10 +1,8 @@
 package com.gestionhorarios.luckydev.service;
 
-import com.gestionhorarios.luckydev.model.Departamento;
-import com.gestionhorarios.luckydev.model.Empleado;
-import com.gestionhorarios.luckydev.model.Novedad;
-import com.gestionhorarios.luckydev.model.TurnoProgramado;
+import com.gestionhorarios.luckydev.model.*;
 import com.gestionhorarios.luckydev.model.enums.TipoTurno;
+import com.gestionhorarios.luckydev.repository.ConfiguracionTurnoRepository;
 import com.gestionhorarios.luckydev.repository.EmpleadoRepository;
 import com.gestionhorarios.luckydev.repository.NovedadRepository;
 import com.gestionhorarios.luckydev.repository.TurnoRepository;
@@ -182,6 +180,146 @@ public class GeneradorHorarioService {
                 .filter(t -> t.getEmpleado().getId().equals(emp.getId()))
                 .anyMatch(t -> t.getFechaHoraEntrada().isAfter(inicio.minusSeconds(1)) &&
                         t.getFechaHoraEntrada().isBefore(fin.plusSeconds(1)));
+    }
+
+    @Transactional
+    public void asignarTurnosDeTrabajoDiarios(Long departamentoId, LocalDate fecha) {
+        // Quienes acuden a tienda
+        List<Empleado> disponibles = obtenerPersonalDisponible(departamentoId, fecha, fecha).stream()
+                .filter(e -> !tieneTurnoEseDia(e, fecha)) // Filtramos a los que ya tienen descanso
+                .collect(Collectors.toList());
+
+        if (disponibles.size() < 2) {
+            System.out.println("⚠️ No hay suficiente personal para cubrir Apertura y Cierre el " + fecha);
+            return;
+        }
+
+        // Daremos apertura al que menos ha abierto en el mes
+        disponibles.sort(Comparator.comparing(Empleado::getConteoAperturasMes));
+        Empleado abridor = disponibles.get(0);
+        registrarTurnoLaboral(abridor, fecha, TipoTurno.APERTURA);
+        abridor.setConteoAperturasMes(abridor.getConteoAperturasMes() + 1);
+
+        // Darle cierre al que menos ha cerrado excluyendo al que ya abre de ser posible
+        disponibles.remove(abridor);
+        disponibles.sort(Comparator.comparing(Empleado::getConteoCierresMes));
+        Empleado cerrador = disponibles.get(0);
+        registrarTurnoLaboral(cerrador, fecha, TipoTurno.CIERRE);
+        cerrador.setConteoCierresMes(cerrador.getConteoCierresMes() + 1);
+
+        // Guardamos progreso
+        empleadoRepository.save(abridor);
+        empleadoRepository.save(cerrador);
+    }
+
+    private void registrarTurnoLaboral(Empleado emp, LocalDate fecha, TipoTurno tipo) {
+        TurnoProgramado turno = new TurnoProgramado();
+        turno.setEmpleado(emp);
+        turno.setEsDescanso(false);
+        turno.setTipoTurno(tipo);
+
+        // Definimos horas base (luego lo haremos dinámico por departamento y a desicion de gerencia)
+        if (tipo == TipoTurno.APERTURA) {
+            turno.setFechaHoraEntrada(fecha.atTime(8, 0));
+            turno.setFechaHoraSalida(fecha.atTime(17, 0));
+        } else {
+            turno.setFechaHoraEntrada(fecha.atTime(13, 0));
+            turno.setFechaHoraSalida(fecha.atTime(22, 0));
+        }
+
+        turnoRepository.save(turno);
+    }
+
+    @Transactional
+    public void generarMesCompleto(Long departamentoId, int mes, int anio) {
+        // Bloqueamos los Fin Largos o Calidad de Vida
+        generarBarridoMensual(departamentoId, mes, anio);
+
+        LocalDate fechaInicio = LocalDate.of(anio, mes, 1);
+        LocalDate fechaFin = fechaInicio.with(TemporalAdjusters.lastDayOfMonth());
+
+        // Escaneamos el mes semana por semana para descansos y turnos
+        LocalDate lunesSemana = fechaInicio.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+
+        while (lunesSemana.isBefore(fechaFin)) {
+            // Damos los 2 descansos x semana a quienes falten
+            asignarDescansosRestantes(departamentoId, lunesSemana);
+
+            // Ponemos Apertura y Cierre para cada día de esta semana
+            for (int i = 0; i < 7; i++) {
+                LocalDate diaActual = lunesSemana.plusDays(i);
+                // Solo si el día pertenece al mes que estamos generando
+                if (diaActual.getMonthValue() == mes) {
+                    asignarTurnosElasticos(departamentoId, diaActual);
+                }
+            }
+            lunesSemana = lunesSemana.plusWeeks(1);
+        }
+        System.out.println("✅ ¡Proceso de generación completa para el mes " + mes + " finalizado!");
+    }
+
+    @Autowired
+    private ConfiguracionTurnoRepository configTurnoRepo;
+
+    @Transactional
+    public void asignarTurnosElasticos(Long departamentoId, LocalDate fecha) {
+        // 1. Buscamos qué turnos configuró el gerente (Apertura, Cierre, etc.)
+        List<ConfiguracionTurno> plantilla = configTurnoRepo.findByDepartamentoIdOrderByOrdenPrioridadAsc(departamentoId);
+
+        if (plantilla.isEmpty()) {
+            System.out.println("⚠️ No hay turnos configurados para el depto " + departamentoId);
+            return;
+        }
+
+        // 2. Traer a los que NO descansan hoy
+        List<Empleado> disponibles = obtenerPersonalDisponible(departamentoId, fecha, fecha).stream()
+                .filter(e -> !tieneTurnoEseDia(e, fecha))
+                .collect(Collectors.toList());
+
+        if (disponibles.isEmpty()) return;
+
+        // 3. REPARTO CIRCULAR Y JUSTO
+        int indiceTurno = 0;
+        while (!disponibles.isEmpty()) {
+            // Seleccionamos el turno que toca según la prioridad (1, 2, 1, 2...)
+            ConfiguracionTurno turnoATomar = plantilla.get(indiceTurno % plantilla.size());
+
+            // Ordenamos a los que sobran para darle el turno al que menos lo ha hecho
+            if (turnoATomar.getNombrePersonalizado().equalsIgnoreCase("Apertura")) {
+                disponibles.sort(Comparator.comparing(Empleado::getConteoAperturasMes));
+            } else if (turnoATomar.getNombrePersonalizado().equalsIgnoreCase("Cierre")) {
+                disponibles.sort(Comparator.comparing(Empleado::getConteoCierresMes));
+            }
+
+            Empleado elegido = disponibles.remove(0); // Tomamos al más apto
+
+            // Registramos el turno con los horarios de la configuración
+            registrarTurnoDesdeConfig(elegido, fecha, turnoATomar);
+
+            // Actualizamos sus puntos de justicia
+            actualizarContadores(elegido, turnoATomar.getNombrePersonalizado());
+
+            empleadoRepository.save(elegido);
+            indiceTurno++;
+        }
+    }
+
+    private void registrarTurnoDesdeConfig(Empleado emp, LocalDate fecha, ConfiguracionTurno config) {
+        TurnoProgramado turno = new TurnoProgramado();
+        turno.setEmpleado(emp);
+        turno.setEsDescanso(false);
+        turno.setFechaHoraEntrada(fecha.atTime(config.getHoraEntrada()));
+        turno.setFechaHoraSalida(fecha.atTime(config.getHoraSalida()));
+        turno.setTipoTurno(TipoTurno.valueOf(config.getNombrePersonalizado().toUpperCase())); // O ajusta según tu Enum
+        turnoRepository.save(turno);
+    }
+
+    private void actualizarContadores(Empleado emp, String nombreTurno) {
+        if (nombreTurno.equalsIgnoreCase("Apertura")) {
+            emp.setConteoAperturasMes(emp.getConteoAperturasMes() + 1);
+        } else if (nombreTurno.equalsIgnoreCase("Cierre")) {
+            emp.setConteoCierresMes(emp.getConteoCierresMes() + 1);
+        }
     }
 
 }
